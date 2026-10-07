@@ -1,0 +1,18 @@
+[package]
+name = "avo-obs"
+description = "Observability track: tracing setup and per-request latency metrics (TTFT, ITL, TPOT)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
