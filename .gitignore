@@ -1,0 +1,8 @@
+/target
+.DS_Store
+*.svg.tmp
+flamegraph.svg
+perf.data*
+/downloads
+/docs/ddil_architectural_blueprint*.md
+/docs/Inference_Serving_Primer.md

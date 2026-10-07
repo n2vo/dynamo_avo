@@ -1,0 +1,42 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+license = "Apache-2.0"
+
+[workspace.dependencies]
+# Internal
+avo-obs = { path = "crates/avo-obs" }
+
+# Runtime
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+# Test and bench
+proptest = "1"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# Dynamo reference crates for differential tests.
+# 1.5.1 is source-identical to main at 6e4221b for lib/kv-hashing and lib/tokens.
+dynamo-kv-hashing = "=1.5.1"
+dynamo-tokens = "=1.5.1"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+dbg_macro = "warn"
+todo = "warn"
+
+[profile.bench]
+debug = true

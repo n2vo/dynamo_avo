@@ -1,0 +1,16 @@
+[package]
+name = "avo-radix-index"
+description = "Milestone 3: radix index over block-hash sequences."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
