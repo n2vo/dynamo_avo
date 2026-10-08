@@ -45,6 +45,7 @@ dependencies = [
  "dynamo-tokens",
  "proptest",
  "thiserror",
+ "xxhash-rust",
 ]
 
 [[package]]
