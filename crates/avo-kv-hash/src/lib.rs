@@ -35,14 +35,25 @@ fn token_bytes(tokens: &[u32]) -> Vec<u8> {
     tokens.iter().flat_map(|t| t.to_le_bytes()).collect()
 }
 
+/// Dynamo's block-hash seed: the chain seed, plus an xxh3 mix of the salt when present.
+/// An empty salt counts as no salt.
+fn salt_seed(salt: Option<&str>) -> u64 {
+    match salt.filter(|s| !s.is_empty()) {
+        None => CHAIN_XXH3_SEED,
+        Some(s) => CHAIN_XXH3_SEED.wrapping_add(xxh3_64_with_seed(s.as_bytes(), 1)),
+    }
+}
+
 /// Hashes every complete block of `tokens`, chaining each block to its parent.
 /// Returns one `SeqHash` per complete block; a trailing partial block is ignored.
-pub fn hash_sequence(tokens: &[u32], block_size: usize, _salt: Option<&str>) -> Vec<SeqHash> {
+pub fn hash_sequence(tokens: &[u32], block_size: usize, salt: Option<&str>) -> Vec<SeqHash> {
     let mut out = Vec::with_capacity(tokens.len() / block_size);
     let mut parent: Option<u64> = None;
 
+    let seed = salt_seed(salt);
+
     for block in tokens.chunks_exact(block_size) {
-        let block_hash = xxh3_64_with_seed(&token_bytes(block), CHAIN_XXH3_SEED);
+        let block_hash = xxh3_64_with_seed(&token_bytes(block), seed);
         let seq = match parent {
             None => block_hash,
             Some(p) => {
