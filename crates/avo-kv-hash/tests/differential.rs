@@ -45,4 +45,25 @@ proptest! {
 
         prop_assert_eq!(ours, dynamo);
     }
+
+    #[test]
+    fn random_salts_match_dynamo(
+        tokens in prop::collection::vec(any::<u32>(), 0..512),
+        salt in prop::option::of("[a-zA-Z0-9-]{0,16}"),
+    ) {
+        let dynamo: Vec<u64> = Request::builder()
+            .tokens(tokens.clone())
+            .salt(salt.clone())
+            .build()
+            .expect("valid request")
+            .sequence_hashes(BLOCK_SIZE)
+            .expect("hashing succeeds");
+
+        let ours: Vec<u64> = hash_sequence(&tokens, BLOCK_SIZE as usize, salt.as_deref())
+            .into_iter()
+            .map(|h| h.as_u64())
+            .collect();
+
+        prop_assert_eq!(ours, dynamo);
+    }
 }
