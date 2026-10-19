@@ -44,6 +44,20 @@ fn salt_seed(salt: Option<&str>) -> u64 {
     }
 }
 
+/// Dynamo's chain step: The first block's sequence hash is its block hash; every later
+/// block hashes `[parent, block_hash]` as little-endian bytes with the chain seed.
+fn chain_step(parent: Option<u64>, block_hash: u64) -> u64 {
+    match parent {
+        None => block_hash,
+        Some(p) => {
+            let mut buf = [0u8; 16];
+            buf[..8].copy_from_slice(&p.to_le_bytes());
+            buf[8..].copy_from_slice(&block_hash.to_le_bytes());
+            xxh3_64_with_seed(&buf, CHAIN_XXH3_SEED)
+        }
+    }
+}
+
 /// Hashes every complete block of `tokens`, chaining each block to its parent.
 /// Returns one `SeqHash` per complete block; a trailing partial block is ignored.
 pub fn hash_sequence(tokens: &[u32], block_size: usize, salt: Option<&str>) -> Vec<SeqHash> {
@@ -54,17 +68,62 @@ pub fn hash_sequence(tokens: &[u32], block_size: usize, salt: Option<&str>) -> V
 
     for block in tokens.chunks_exact(block_size) {
         let block_hash = xxh3_64_with_seed(&token_bytes(block), seed);
-        let seq = match parent {
-            None => block_hash,
-            Some(p) => {
-                let mut buf = [0u8; 16];
-                buf[..8].copy_from_slice(&p.to_le_bytes());
-                buf[8..].copy_from_slice(&block_hash.to_le_bytes());
-                xxh3_64_with_seed(&buf, CHAIN_XXH3_SEED)
-            }
-        };
+        let seq = chain_step(parent, block_hash);
+        // let seq = match parent {
+        //     None => block_hash,
+        //     Some(p) => {
+        //         let mut buf = [0u8; 16];
+        //         buf[..8].copy_from_slice(&p.to_le_bytes());
+        //         buf[8..].copy_from_slice(&block_hash.to_le_bytes());
+        //         xxh3_64_with_seed(&buf, CHAIN_XXH3_SEED)
+        //     }
+        // };
+
         out.push(SeqHash(seq));
         parent = Some(seq);
     }
     out
+}
+
+/// Hashes a token stream as it arrives, emitting a `SeqHash` each time a block completes.
+/// Produces the same hashes as `hash_sequence` over the same tokens, block size, and salt.
+pub struct IncrementalHasher {
+    block_size: usize,
+    seed: u64,
+    pending: Vec<u32>,
+    parent: Option<u64>,
+    hashes: Vec<SeqHash>,
+}
+
+impl IncrementalHasher {
+    /// Creates a hasher for `block_size` tokens per blok. Panics if `block_size` is zero,
+    /// matching `hash_sequence`, whose `chunkcs_exact(0)` also panics.
+    pub fn new(block_size: usize, salt: Option<&str>) -> Self {
+        assert!(block_size > 0, "block_size must be non-zero");
+        Self {
+            block_size,
+            seed: salt_seed(salt),
+            pending: Vec::with_capacity(block_size),
+            parent: None,
+            hashes: Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self, token: u32) -> Option<SeqHash> {
+        self.pending.push(token);
+        if self.pending.len() < self.block_size {
+            return None;
+        }
+        let block_hash = xxh3_64_with_seed(&token_bytes(&self.pending), self.seed);
+        let seq = SeqHash(chain_step(self.parent, block_hash));
+        self.pending.clear();
+        self.parent = Some(seq.0);
+        self.hashes.push(seq);
+        Some(seq)
+    }
+
+    /// All sequence hashes for completed blocks so far, in order.
+    pub fn hashes(&self) -> &[SeqHash] {
+        &self.hashes
+    }
 }
