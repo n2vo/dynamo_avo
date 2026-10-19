@@ -1,4 +1,4 @@
-use avo_kv_hash::{hash_sequence, IncrementalHasher};
+use avo_kv_hash::{IncrementalHasher, hash_sequence};
 use proptest::prelude::*;
 
 const BLOCK_SIZE: usize = 16;
