@@ -35,7 +35,7 @@ proptest! {
     fn incremental_matches_one_pass(
         tokens in prop::collection::vec(any::<u32>(), 0..300),
         block_size in 1usize..32,
-        salt in prop::option::of("[a-z]{0..8}"),
+        salt in prop::option::of("[a-z]{0,8}"),
     ) {
         let one_pass = hash_sequence(&tokens, block_size, salt.as_deref());
 
