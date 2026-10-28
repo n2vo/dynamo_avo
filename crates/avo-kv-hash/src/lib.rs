@@ -69,15 +69,6 @@ pub fn hash_sequence(tokens: &[u32], block_size: usize, salt: Option<&str>) -> V
     for block in tokens.chunks_exact(block_size) {
         let block_hash = xxh3_64_with_seed(&token_bytes(block), seed);
         let seq = chain_step(parent, block_hash);
-        // let seq = match parent {
-        //     None => block_hash,
-        //     Some(p) => {
-        //         let mut buf = [0u8; 16];
-        //         buf[..8].copy_from_slice(&p.to_le_bytes());
-        //         buf[8..].copy_from_slice(&block_hash.to_le_bytes());
-        //         xxh3_64_with_seed(&buf, CHAIN_XXH3_SEED)
-        //     }
-        // };
 
         out.push(SeqHash(seq));
         parent = Some(seq);
@@ -96,8 +87,8 @@ pub struct IncrementalHasher {
 }
 
 impl IncrementalHasher {
-    /// Creates a hasher for `block_size` tokens per blok. Panics if `block_size` is zero,
-    /// matching `hash_sequence`, whose `chunkcs_exact(0)` also panics.
+    /// Creates a hasher for `block_size` tokens per block. Panics if `block_size` is zero,
+    /// matching `hash_sequence`, whose `chunks_exact(0)` also panics.
     pub fn new(block_size: usize, salt: Option<&str>) -> Self {
         assert!(block_size > 0, "block_size must be non-zero");
         Self {
