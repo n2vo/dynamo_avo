@@ -1,10 +1,10 @@
-//! Milestone 2 benchmark: The three paths through the block pook at three capacities.
+//! Milestone 2 benchmark: The three paths through the block pool, at three capacities.
 //!
 //! - `alloc_drop`: Allocate and drop with no commit. Free-list pop and push: Expected flat.
-//! - `lookup_hit': Look up a committed inactive block and drop it. Hash index hit; expected flat.
-//! - `evict': Allocate on a pool whose blocks are all inactive so every allocation evicts the
-//!   LRU block, then commit and drop it. `evict_lru` scans every block, so this is expected to
-//!   grow linearly with capacity.
+//! - `lookup_hit`: Look up a committed inactive block and drop it. Hash index hit; expected flat.
+//! - `evict`: Allocate on a pool whose blocks are all inactive, so every allocation evicts the
+//!   LRU block, then commit and drop it. Eviction pops the head of the LRU list, so this is
+//!   expected flat.
 
 use avo_block_pool::BlockPool;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};

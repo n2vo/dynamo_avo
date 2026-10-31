@@ -27,7 +27,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-/// Index of a block in the pool, `0..capacity`
+/// Index of a block in the pool, `0..capacity`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BlockId(pub u32);
 
@@ -49,14 +49,14 @@ pub struct PoolStats {
     /// Held by at least one live handle.
     pub active: usize,
 
-    /// Commited, no live handle, cached for `lookup`, evictable.
+    /// Committed, no live handle, cached for `lookup`, evictable.
     pub inactive: usize,
 
-    /// Never committed or evicted, available to `allocate`.
+    /// Never committed, or evicted; available to `allocate`.
     pub free: usize,
 }
 
-/// Every block Id by state, for invariant checks in tests. Order within a vector is not
+/// Every block id by state, for invariant checks in tests. Order within a vector is not
 /// part of the contract.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Audit {
@@ -68,13 +68,13 @@ pub struct Audit {
 /// Where one block is in the lifecycle. Every block is in exactly one state; the
 /// transitions are the diagram at the beginning of this file.
 enum BlockState {
-    /// On the free list. Never committed or evicted.
+    /// On the free list. Never committed, or evicted.
     Free,
 
     /// Held by `refs` live handles. `hash` is `None` until `commit`.
     Active { refs: usize, hash: Option<u64> },
 
-    /// Committed, no live handle, cached for `lookup`. and linked into the LRU list.
+    /// Committed, no live handle, cached for `lookup`, and linked into the LRU list.
     Inactive { hash: u64 },
 }
 
@@ -102,7 +102,7 @@ struct PoolState {
     tail: u32,
 }
 
-// End-of-list market for the LRU links
+// End-of-list marker for the LRU links
 const NIL: u32 = u32::MAX;
 
 impl PoolState {
@@ -155,7 +155,7 @@ impl PoolState {
         self.blocks[i] = BlockState::Free;
 
         // Remove the index entry only if it still points at this block. A later commit
-        // under the same hash may have re=pointed it at a newer block.
+        // under the same hash may have re-pointed it at a newer block.
         if self.by_hash.get(&hash) == Some(&id) {
             self.by_hash.remove(&hash);
         }
@@ -199,7 +199,7 @@ pub struct BlockPool {
 }
 
 impl BlockPool {
-    /// Creates a pool of `capacity` from blocks. Panics if `capacity` is zero.
+    /// Creates a pool of `capacity` free blocks. Panics if `capacity` is zero.
     pub fn new(capacity: usize) -> Self {
         assert!(capacity > 0, "capacity must not be zero");
         assert!(
@@ -242,7 +242,7 @@ impl BlockPool {
     }
 
     /// Cache hit. If a block committed under `hash` exists (active or inactive), returns a
-    /// handle sharing it and marks it as used now. An inactive block becomes active.
+    /// handle sharing it. An inactive block becomes active and leaves the LRU list.
     pub fn lookup(&self, hash: u64) -> Option<BlockHandle> {
         let mut st = lock(&self.inner);
         let id = *st.by_hash.get(&hash)?;
@@ -298,7 +298,7 @@ impl BlockPool {
     }
 }
 
-/// RAII handle on active block. `Clone` shares the block, reference count plus one;
+/// RAII handle on an active block. `Clone` shares the block, reference count plus one;
 /// `Drop` releases it. The last release moves the block into Inactive if committed or
 /// back to Free if not.
 pub struct BlockHandle {

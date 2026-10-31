@@ -41,7 +41,7 @@ fn assert_active_matches_handles(audit: &Audit, handles: &[BlockHandle]) {
 #[derive(Clone, Debug)]
 enum Op {
     Allocate,
-    /// Commit then handle at this inde (module live handles) under this hash.
+    /// Commit the handle at this index (modulo live handles) under this hash.
     Commit(usize, u64),
     /// Look up this hash.
     Lookup(u64),
