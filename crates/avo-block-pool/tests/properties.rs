@@ -191,3 +191,19 @@ fn exhausted_when_every_block_is_held() {
     let _h = pool.allocate().expect("free block");
     assert_eq!(pool.allocate().err(), Some(PoolError::Exhausted));
 }
+
+#[test]
+fn evicting_a_replaced_block_keeps_the_newer_index_entry() {
+    let pool = BlockPool::new(2);
+    let a = pool.allocate().expect("free block");
+    a.commit(7).expect("commit");
+    let b = pool.allocate().expect("free block");
+    b.commit(7).expect("same hash; b replaces a in the index");
+    let b_id = b.id();
+    drop(a); // a goes inactive first, so it is the eviction victim
+    drop(b);
+
+    let _c = pool.allocate().expect("evicts a");
+    let hit = pool.lookup(7).expect("b is still cached under hash 7");
+    assert_eq!(hit.id(), b_id);
+}

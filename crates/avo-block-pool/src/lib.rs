@@ -74,14 +74,13 @@ enum BlockState {
     /// Held by `refs` live handles. `hash` is `None` until `commit`.
     Active { refs: usize, hash: Option<u64> },
 
-    /// Committed, no live handle, cached for `lookup`. `last_use` is the pool tick at
-    /// the last drop or lookup; eviction takes the smallest.
-    Inactive { hash: u64, last_use: u64 },
+    /// Committed, no live handle, cached for `lookup`. and linked into the LRU list.
+    Inactive { hash: u64 },
 }
 
 /// Internal pool state behind the lock
 struct PoolState {
-    // Per-id state: Free | Active { refs, hash } | Inactive { hash, last_use }
+    // Per-id state: Free | Active { refs, hash } | Inactive { hash }
     blocks: Vec<BlockState>,
 
     // Free list
@@ -90,36 +89,77 @@ struct PoolState {
     // Committed blocks, active or inactive, for lookup
     by_hash: HashMap<u64, BlockId>,
 
-    // monotonic counter for LRU ordering
-    tick: u64,
+    // LRU list: Previous inactive block, NIL at the head
+    prev: Vec<u32>,
+
+    // LRU list: Next inactive block, NIL at the tail
+    next: Vec<u32>,
+
+    // Least recently released inactive block, or NIL
+    head: u32,
+
+    // Most recently released inactive block, or NIL
+    tail: u32,
 }
+
+// End-of-list market for the LRU links
+const NIL: u32 = u32::MAX;
 
 impl PoolState {
     fn idx(id: BlockId) -> usize {
         id.0 as usize
     }
 
-    fn next_tick(&mut self) -> u64 {
-        self.tick += 1;
-        self.tick
+    fn lru_push_back(&mut self, id: BlockId) {
+        let id = id.0;
+        self.prev[id as usize] = self.tail;
+        self.next[id as usize] = NIL;
+        if self.tail == NIL {
+            self.head = id;
+        } else {
+            self.next[self.tail as usize] = id;
+        }
+        self.tail = id;
+    }
+
+    // Removes a block from anywhere in the LRU list.
+    fn lru_unlink(&mut self, id: BlockId) {
+        let i = Self::idx(id);
+        let (p, n) = (self.prev[i], self.next[i]);
+        if p == NIL {
+            self.head = n;
+        } else {
+            self.next[p as usize] = n;
+        }
+        if n == NIL {
+            self.tail = p;
+        } else {
+            self.prev[n as usize] = p;
+        }
+        self.prev[i] = NIL;
+        self.next[i] = NIL;
     }
 
     /// Evicts the least recently used inactive block and returns its id, now Free but not
     /// on the free list (the caller takes it directly). `None` if nothing is inactive.
     fn evict_lru(&mut self) -> Option<BlockId> {
-        let (i, hash) = self
-            .blocks
-            .iter()
-            .enumerate()
-            .filter_map(|(i, b)| match b {
-                BlockState::Inactive { hash, last_use } => Some((i, *hash, *last_use)),
-                _ => None,
-            })
-            .min_by_key(|&(_, _, last_use)| last_use)
-            .map(|(i, hash, _)| (i, hash))?;
+        if self.head == NIL {
+            return None;
+        }
+        let id = BlockId(self.head);
+        let i = Self::idx(id);
+        let BlockState::Inactive { hash } = self.blocks[i] else {
+            unreachable!("only inactive blocks are linked into the LRU list");
+        };
+        self.lru_unlink(id);
         self.blocks[i] = BlockState::Free;
-        self.by_hash.remove(&hash);
-        Some(BlockId(i as u32))
+
+        // Remove the index entry only if it still points at this block. A later commit
+        // under the same hash may have re=pointed it at a newer block.
+        if self.by_hash.get(&hash) == Some(&id) {
+            self.by_hash.remove(&hash);
+        }
+        Some(id)
     }
 
     /// One handle released. The last release moves the block to Inactive if committed or
@@ -135,8 +175,8 @@ impl PoolState {
         }
         match *hash {
             Some(hash) => {
-                let last_use = self.next_tick();
-                self.blocks[i] = BlockState::Inactive { hash, last_use };
+                self.blocks[i] = BlockState::Inactive { hash };
+                self.lru_push_back(id);
             }
             None => {
                 self.blocks[i] = BlockState::Free;
@@ -162,13 +202,21 @@ impl BlockPool {
     /// Creates a pool of `capacity` from blocks. Panics if `capacity` is zero.
     pub fn new(capacity: usize) -> Self {
         assert!(capacity > 0, "capacity must not be zero");
+        assert!(
+            capacity < NIL as usize,
+            "capacity must fit block ids below NIL"
+        );
+
         let blocks = (0..capacity).map(|_| BlockState::Free).collect();
         let free = (0..capacity).map(|i| BlockId(i as u32)).collect();
         let state = PoolState {
             blocks,
             free,
             by_hash: HashMap::new(),
-            tick: 0,
+            prev: vec![NIL; capacity],
+            next: vec![NIL; capacity],
+            head: NIL,
+            tail: NIL,
         };
         Self {
             inner: Arc::new(Mutex::new(state)),
@@ -202,6 +250,7 @@ impl BlockPool {
         match &mut st.blocks[i] {
             BlockState::Active { refs, .. } => *refs += 1,
             BlockState::Inactive { .. } => {
+                st.lru_unlink(id);
                 st.blocks[i] = BlockState::Active {
                     refs: 1,
                     hash: Some(hash),
