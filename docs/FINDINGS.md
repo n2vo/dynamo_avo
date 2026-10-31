@@ -12,11 +12,11 @@ Each milestone closes with one entry: The benchmark, the bottleneck that limits 
 
 #### Milestone 2: Block Pool
 
-- **Benchmark:**
-- **Bottleneck:**
-- **Evidence:**
-- **Fix or Deferral:**
-- **Dynamo Comparison:**
+- **Benchmark:** `benches/pool.rs`, Criterion, group `pool`, capacities 1,024 / 8,192 / 32,768 blocks, on jeeves7 (M1 Max). `alloc_drop` allocates and drops an uncommitted block (free-list path). `lookup_hit` looks up a committed inactive block and drops the handle (hash-index path). `evict` allocates on a pool whose blocks are all inactive, so every allocation evicts, then commits under a fresh hash and drops. Medians after the fix: `alloc_drop` 20.5 ns; `lookup_hit` 24.6 ns; `evict` 66.8 ns, 66.9 ns, and 71.4 ns.
+- **Bottleneck:** The first implementation found the least recently used (LRU) block by scanning every entry of `blocks` for the smallest `last_use`, so eviction was O(n) in capacity at about 0.7 ns per block: 762 ns, 6.06 µs, and 23.1 µs at the three capacities. At 32,768 blocks one eviction cost as much as about 1,100 free-list allocations, and once the pool fills, every allocation evicts.
+- **Evidence:** Before the fix, eviction time grew 7.95x for an 8x increase in capacity and 3.81x for 4x, while the free-list and lookup paths stayed flat. Pool correctness under random allocate, commit, lookup, clone, and drop sequences is proven by `no_block_leaked_or_freed_twice`. During the fix it caught a missing link update in `lru_unlink`; the failing sequence is saved in `properties.proptest-regressions` and replays on every run.
+- **Fix or Deferral:** Fixed. Inactive blocks are kept in an intrusive doubly linked list indexed by block id (`prev`, `next`, `head`, `tail`): release appends at the tail, a lookup hit unlinks from anywhere, and eviction pops the head, all O(1) with no allocation. Eviction is now flat at 67 to 71 ns, 11x to 323x faster. The cost is about 2 ns on `lookup_hit` (22.5 to 24.6 ns), one unlink and one push per revive. The same change fixed a stale-index bug: Evicting a block deleted the hash-index entry unconditionally, so if a newer block had been committed under the same hash, its entry was removed and it became unreachable. Eviction now removes the entry only if it still points at the evicted block; `evicting_a_replaced_block_keeps_the_newer_index_entry` covers it.
+- **Dynamo Comparison:** Dynamo `main` at `4435cab`, `lib/kvbm-logical/src/pools/inactive`. The inactive pool is pluggable: HashMap with first-in-first-out (FIFO) reuse (`BTreeMap`, O(log n)), LRU (`lru` crate, O(1) `pop_lru`), multi-LRU (four LRU tiers bucketed by TinyLFU access frequency, coldest tier evicted first), and Lineage. The default when none is configured is Lineage with Tick ordering, which evicts only leaves of the prefix lineage graph, ordered in a `BTreeMap` by insertion tick (O(log n)); a Fifo variant is O(1) with no steady-state allocation, the same shape as the list here. No backend scans. The remaining difference is leaf-only eviction: `avo-block-pool` can evict a parent block while its children stay cached, and because prefix matching stops at the first miss, those children become unreachable while still holding capacity. Milestone 3's radix index restricts eviction to leaves, with this list as the ordering among them.
 
 #### Milestone 3: Radix Index
 

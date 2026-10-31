@@ -7,7 +7,7 @@ A CPU-side key-value (KV) cache and scheduling core for large language model (LL
 | Crate | Milestone | Dynamo Counterpart | Status |
 |---|---|---|---|
 | `avo-kv-hash` | 1: Chained block hashing and prefix matching | `lib/tokens`, `lib/kv-hashing` | Complete |
-| `avo-block-pool` | 2: Reference-counted block pool with LRU reuse and RAII handles | `lib/kvbm-logical` | Stub |
+| `avo-block-pool` | 2: Reference-counted block pool with LRU reuse and RAII handles | `lib/kvbm-logical` | Complete |
 | `avo-radix-index` | 3: Radix index over block-hash sequences | `lib/kv-router/src/indexer` | Stub |
 | `avo-obs` | Observability track: Tracing setup and per-request TTFT, ITL, and TPOT | `lib/llm/src/request_trace` | In progress |
 
