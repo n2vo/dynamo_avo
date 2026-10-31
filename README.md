@@ -1,6 +1,6 @@
 ### dynamo_avo
 
-A CPU-side key-value (KV) cache and scheduling core for large language model (LLM) inference, written in Rust and built one milestone at a time against the corresponding components of NVIDIA Dynamo. Each milestone builds a component, pins its behavior with property tests, compares it bit for bit against the Dynamo reference crates where a reference exists, benchmarks it against the Dynamo baseline, and records the result in `docs/FINDINGS.md`.
+A clean-room Rust reimplementation of the CPU-side key-value (KV) cache management and scheduling core from NVIDIA Dynamo, built one component at a time with Dynamo’s own crates as the reference oracle. The goal is depth, not replacement: Rebuilding each component from its observable behavior and measuring where the design choices are load-bearing. Scope is the control plane: Block pool allocation, content-hashed prefix indexing, eviction, host and disk tiering, and KV-aware routing. Tensor residency and attention kernels remain in the inference engine. Each milestone builds a component, pins its behavior with property tests, compares it bit for bit against the Dynamo reference crates where a reference exists, benchmarks it against the Dynamo baseline, and records the result in `docs/FINDINGS.md`.
 
 #### Workspace
 
