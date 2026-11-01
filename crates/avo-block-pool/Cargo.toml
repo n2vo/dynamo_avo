@@ -18,5 +18,9 @@ criterion.workspace = true
 name = "pool"
 harness = false
 
+[[bench]]
+name = "contention"
+harness = false
+
 [lints]
 workspace = true
