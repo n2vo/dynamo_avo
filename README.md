@@ -9,6 +9,8 @@ A clean-room Rust reimplementation of the CPU-side key-value (KV) cache manageme
 | `avo-kv-hash` | 1: Chained block hashing and prefix matching | `lib/tokens`, `lib/kv-hashing` | Complete |
 | `avo-block-pool` | 2: Reference-counted block pool with LRU reuse and RAII handles | `lib/kvbm-logical` | Complete |
 | `avo-radix-index` | 3: Radix index over block-hash sequences | `lib/kv-router/src/indexer` | Stub |
+| `avo-kv-offload` | 4: Host and disk tiering, offload policy and pipeline | `lib/kvbm-engine/src/offload`, `lib/kvbm-physical` | Planned |
+| `avo-kv-router` | 5: KV-aware routing | `lib/kv-router/src/scheduling` | Planned |
 | `avo-obs` | Observability track: Tracing setup and per-request TTFT, ITL, and TPOT | `lib/llm/src/request_trace` | In progress |
 
 TTFT is time to first token, ITL is inter-token latency, and TPOT is time per output token.
