@@ -1,10 +1,10 @@
 //! Contention Benchmark: Pool throughput as threads are added, with every operation using
-//! the pool's single `Mutex`/
+//! the pool's single `Mutex`.
 //!
 //! - `churn`: Each thread repeatedly allocates (evicting once the pool fills), commits
 //!   under a thread-unique hash, and drops. Every step acquires the lock.
 //! - `lookup`: Each thread repeatedly looks up one of 1,024 shared committed blocks and
-//!   drops the handle. Read-mostly in intent but each lookup-n-drop still acquires the lock.
+//!   drops the handle. Read-mostly in intent but each lookup and drop still acquires the lock.
 //!
 //! One element is one cycle by one thread. Ideal scaling doubles elements per second when
 //! threads double. Time is measured from a barrier release to the last thread joining.
@@ -20,7 +20,7 @@ const THREADS: [usize; 4] = [1, 2, 4, 8];
 const CAPACITY: usize = 4_096;
 const SHARED_HASHES: u64 = 1_024;
 
-/// Runs `cycle(thread, 1)` for `iters` cycles on each of the `threads` threads, all released
+/// Runs `cycle(t, 1)` for `iters` cycles on each of the `threads` threads, all released
 /// together, and returns the wall time until the last thread finishes.
 fn run_threads<F>(threads: usize, iters: u64, cycle: F) -> Duration
 where
@@ -73,9 +73,9 @@ fn churn(c: &mut Criterion) {
 
                     // (t as u64) << 48 converts thread index to u64 & shifts left by 48 bits
                     // moving it into top 16 bits of 64-bit number. lower 48 bits become zero.
-                    // | i is bitwise OR, filling zerod low 48 bits with cycle number
-                    // Thread index sits in high bits, cycle number in low bits, two never
-                    // overlap.; Or works like addition.
+                    // | i is bitwise OR, filling the zerod low 48 bits with cycle number.
+                    // Thread index sits in the high bits, cycle number in the low bits; the
+                    // two never overlap, so OR works like addition.
                     //
                     // Result: Thread ID in the high bits, keeping hash unique across threads
                     h.commit(((t as u64) << 48) | i).expect("commit");

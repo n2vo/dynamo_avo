@@ -126,7 +126,8 @@ fn invariants_hold_under_concurrent_use() {
             .map(|t| {
                 let pool = &pool;
                 // 0x9E37_7989_7F4A_7C15 -> 64-bit hex number, known constant in hashing & RNG
-                // d0x9E37_7989_7F4A_7C15 <- from 2^64 / 1.618, aka golden ratio.
+                // 0x9E37_79B9_7F4A_7C15 = 2^64 / golden ratio, XOR with it never yields zero,
+                // which xorshift64 requires.
                 s.spawn(move || worker(pool, 0x9E37_79B9_7F4A_7C15 ^ (t as u64 + 1)))
             })
             .collect();
