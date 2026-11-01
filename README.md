@@ -36,7 +36,7 @@ CI (`.github/workflows/ci.yml`) runs format check, Clippy, the test suite, and a
 
 ```
 crates/avo-kv-hash/      Milestone 1 implementation, differential and property tests, benchmarks
-crates/avo-block-pool/   Milestone 2 (stub)
+crates/avo-block-pool/   Milestone 2 implementation, property and concurrency tests, benchmarks
 crates/avo-radix-index/  Milestone 3 (stub)
 crates/avo-obs/          Observability shared by every milestone
 docs/FINDINGS.md         Per-milestone benchmark, bottleneck, evidence, and Dynamo comparison

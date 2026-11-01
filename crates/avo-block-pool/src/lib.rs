@@ -25,7 +25,9 @@
 //! more than one set, or twice in one set, is the double-free invariant.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
+
+use parking_lot::{Mutex, MutexGuard};
 
 /// Index of a block in the pool, `0..capacity`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -186,10 +188,10 @@ impl PoolState {
     }
 }
 
-/// Locks the state, recovering from a poisoned lock (a panic while another holder had it)
-/// rather than propagating it, so `Drop` never panics on the lock itself.
+/// Locks the state. `parking_lot::Mutex` has no lock poisoning so a panic while another
+/// holder had the lock does not make `Drop` panic on the lock itself.
 fn lock(inner: &Mutex<PoolState>) -> MutexGuard<'_, PoolState> {
-    inner.lock().unwrap_or_else(PoisonError::into_inner)
+    inner.lock()
 }
 
 /// Fixed-capacity block pool. Cheap to clone; clones share the same blocks.
