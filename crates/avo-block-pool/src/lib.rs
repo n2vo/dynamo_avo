@@ -24,7 +24,7 @@
 //! `active + inactive + free == capacity` is the leak invariant, and a block id appearing in
 //! more than one set, or twice in one set, is the double-free invariant.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
 
@@ -42,6 +42,10 @@ pub enum PoolError {
 
     #[error("block already committed")]
     AlreadyCommitted,
+
+    /// A batch named a handle from a different pool.
+    #[error("handle belongs to a different pool")]
+    ForeignHandle,
 }
 
 /// Block counts. `active + inactive + free == capacity` always.
@@ -128,6 +132,9 @@ struct PoolState {
 
     // Most recently released inactive block, or NIL
     tail: u32,
+
+    // Number of blocks linked into the LRU list, so a batch can check capacity up front
+    inactive_len: usize,
 }
 
 // End-of-list marker for the LRU links
@@ -148,6 +155,7 @@ impl PoolState {
             self.next[self.tail as usize] = id;
         }
         self.tail = id;
+        self.inactive_len += 1;
     }
 
     // Removes a block from anywhere in the LRU list.
@@ -166,6 +174,7 @@ impl PoolState {
         }
         self.prev[i] = NIL;
         self.next[i] = NIL;
+        self.inactive_len -= 1;
     }
 
     /// Evicts the least recently used inactive block and returns its id, now Free but not
@@ -186,6 +195,39 @@ impl PoolState {
         // under the same hash may have re-pointed it at a newer block.
         if self.by_hash.get(&hash) == Some(&id) {
             self.by_hash.remove(&hash);
+        }
+        Some(id)
+    }
+
+    /// Takes a block from the free list, or evicts the LRU inactive block when the free
+    /// list is empty, and makes it Active and uncommitted. `None` if neither exists.
+    fn take(&mut self) -> Option<BlockId> {
+        let id = match self.free.pop() {
+            Some(id) => id,
+            None => self.evict_lru()?,
+        };
+        self.blocks[Self::idx(id)] = BlockState::Active {
+            refs: 1,
+            hash: None,
+        };
+        Some(id)
+    }
+
+    /// Cache hit on `hash`: Shares an active block or revives an inactive one out of
+    /// the LRU list. `None` if no block is committed under `hash`.
+    fn acquire(&mut self, hash: u64) -> Option<BlockId> {
+        let id = *self.by_hash.get(&hash)?;
+        let i = Self::idx(id);
+        match &mut self.blocks[i] {
+            BlockState::Active { refs, .. } => *refs += 1,
+            BlockState::Inactive { .. } => {
+                self.lru_unlink(id);
+                self.blocks[i] = BlockState::Active {
+                    refs: 1,
+                    hash: Some(hash),
+                };
+            }
+            BlockState::Free => unreachable!("by_hash holds only committed blocks"),
         }
         Some(id)
     }
@@ -245,6 +287,7 @@ impl BlockPool {
             next: vec![NIL; capacity],
             head: NIL,
             tail: NIL,
+            inactive_len: 0,
         };
         Self {
             inner: Arc::new(Mutex::new(state)),
@@ -254,42 +297,86 @@ impl BlockPool {
     /// Takes a block from the free list or evicts the least recently used inactive block
     /// when the free list is empty. Returns an uncommitted handle.
     pub fn allocate(&self) -> Result<BlockHandle, PoolError> {
-        let mut st = lock(&self.inner);
-        let id = match st.free.pop() {
-            Some(id) => id,
-            None => st.evict_lru().ok_or(PoolError::Exhausted)?,
+        let id = lock(&self.inner).take().ok_or(PoolError::Exhausted)?;
+        Ok(self.handle(id))
+    }
+
+    /// Allocates `n` uncommitted blocks under one lock acquisition, free list first, then
+    /// LRU eviction. All or nothing: If fewer than `n` blocks are free or inactive, returns
+    /// `Exhausted` and changes nothing.
+    pub fn allocate_many(&self, n: usize) -> Result<Vec<BlockHandle>, PoolError> {
+        let ids: Vec<BlockId> = {
+            let mut st = lock(&self.inner);
+            if st.free.len() + st.inactive_len < n {
+                return Err(PoolError::Exhausted);
+            }
+            (0..n)
+                .map(|_| st.take().expect("free plus inactive covers n"))
+                .collect()
         };
-        st.blocks[PoolState::idx(id)] = BlockState::Active {
-            refs: 1,
-            hash: None,
-        };
-        Ok(BlockHandle {
-            id,
-            pool: Arc::clone(&self.inner),
-        })
+        // Handles are built after the lock is released: A handle dropped while the lock
+        // is held would deadlock in `Drop`.
+        Ok(ids.into_iter().map(|id| self.handle(id)).collect())
     }
 
     /// Cache hit. If a block committed under `hash` exists (active or inactive), returns a
     /// handle sharing it. An inactive block becomes active and leaves the LRU list.
     pub fn lookup(&self, hash: u64) -> Option<BlockHandle> {
-        let mut st = lock(&self.inner);
-        let id = *st.by_hash.get(&hash)?;
-        let i = PoolState::idx(id);
-        match &mut st.blocks[i] {
-            BlockState::Active { refs, .. } => *refs += 1,
-            BlockState::Inactive { .. } => {
-                st.lru_unlink(id);
-                st.blocks[i] = BlockState::Active {
-                    refs: 1,
-                    hash: Some(hash),
-                };
-            }
-            BlockState::Free => unreachable!("by_hash holds only committed blocks"),
+        let id = lock(&self.inner).acquire(hash)?;
+        Some(self.handle(id))
+    }
+
+    /// Prefix match under one lock acquisition: Looks up `hashes` in order and stops at the
+    /// first miss. Returns one handle per matched hash, in order.
+    pub fn lookup_prefix(&self, hashes: &[u64]) -> Vec<BlockHandle> {
+        let ids: Vec<BlockId> = {
+            let mut st = lock(&self.inner);
+            hashes.iter().map_while(|&hash| st.acquire(hash)).collect()
+        };
+        ids.into_iter().map(|id| self.handle(id)).collect()
+    }
+
+    /// Commits each handle under its hash, under one lock acquisition. Validates the batch
+    /// before changing anything, so it applies entirely or not at all. Fails with
+    /// `ForeignHandle` if a handle belongs to another pool, and with `AlreadyCommitted` if
+    /// a block is already committed or appears twice in the batch (clones share a block).
+    /// Commits apply in order, so a repeated hash leaves the last block in the index, as
+    /// sequential `commit` calls would.
+    pub fn commit_many(&self, items: &[(&BlockHandle, u64)]) -> Result<(), PoolError> {
+        if items
+            .iter()
+            .any(|(h, _)| !Arc::ptr_eq(&h.pool, &self.inner))
+        {
+            return Err(PoolError::ForeignHandle);
         }
-        Some(BlockHandle {
+        let mut st = lock(&self.inner);
+        let mut seen = HashSet::with_capacity(items.len());
+        for (h, _) in items {
+            if !seen.insert(h.id) {
+                return Err(PoolError::AlreadyCommitted);
+            }
+            match st.blocks[PoolState::idx(h.id)] {
+                BlockState::Active { hash: Some(_), .. } => {
+                    return Err(PoolError::AlreadyCommitted);
+                }
+                BlockState::Active { hash: None, .. } => {}
+                _ => unreachable!("a live handle implies an active block"),
+            }
+        }
+        for (h, hash) in items {
+            if let BlockState::Active { hash: slot, .. } = &mut st.blocks[PoolState::idx(h.id)] {
+                *slot = Some(*hash);
+            }
+            st.by_hash.insert(*hash, h.id);
+        }
+        Ok(())
+    }
+
+    fn handle(&self, id: BlockId) -> BlockHandle {
+        BlockHandle {
             id,
             pool: Arc::clone(&self.inner),
-        })
+        }
     }
 
     pub fn stats(&self) -> PoolStats {

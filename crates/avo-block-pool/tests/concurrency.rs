@@ -57,7 +57,7 @@ fn worker(pool: &BlockPool, seed: u64) {
     let mut handles: Vec<BlockHandle> = Vec::new();
 
     for _ in 0..OPS_PER_THREAD {
-        match rng.below(10) {
+        match rng.below(13) {
             // Allocate. Exhausted is legal under contention: Other threads may hold every
             // block at this instant.
             0..=2 => match pool.allocate() {
@@ -93,10 +93,45 @@ fn worker(pool: &BlockPool, seed: u64) {
                 }
             }
             // Drop one of this thread's handles.
-            _ => {
+            8 | 9 => {
                 if !handles.is_empty() {
                     let i = rng.below(handles.len() as u64) as usize;
                     drop(handles.swap_remove(i));
+                }
+            }
+            // Allocate a batch. Exhausted is legal for the same reason as above.
+            10 => match pool.allocate_many(1 + rng.below(4) as usize) {
+                Ok(batch) => handles.extend(batch),
+                Err(PoolError::Exhausted) => {}
+                Err(e) => panic!("unexpected error {e:?}"),
+            },
+            // Prefix-match a few shared hashes: Every hit must carry its hash.
+            11 => {
+                let hashes: Vec<u64> = (0..1 + rng.below(4)).map(|_| rng.below(HASHES)).collect();
+                let hits = pool.lookup_prefix(&hashes);
+                for (h, hash) in hits.iter().zip(&hashes) {
+                    assert_eq!(
+                        h.hash(),
+                        Some(*hash),
+                        "lookup_prefix returned the wrong block"
+                    );
+                }
+                handles.extend(hits);
+            }
+            // Commit a batch of this thread's handles. AlreadyCommitted is legal: A pick can
+            // be a block already committed, or the same block twice.
+            _ => {
+                if !handles.is_empty() {
+                    let items: Vec<(&BlockHandle, u64)> = (0..1 + rng.below(3))
+                        .map(|_| {
+                            let i = rng.below(handles.len() as u64) as usize;
+                            (&handles[i], rng.below(HASHES))
+                        })
+                        .collect();
+                    match pool.commit_many(&items) {
+                        Ok(()) | Err(PoolError::AlreadyCommitted) => {}
+                        Err(e) => panic!("unexpected error {e:?}"),
+                    }
                 }
             }
         }
@@ -125,7 +160,7 @@ fn invariants_hold_under_concurrent_use() {
         let workers: Vec<_> = (0..THREADS)
             .map(|t| {
                 let pool = &pool;
-                // 0x9E37_7989_7F4A_7C15 -> 64-bit hex number, known constant in hashing & RNG
+                // 0x9E37_79B9_7F4A_7C15 -> 64-bit hex number, known constant in hashing & RNG
                 // 0x9E37_79B9_7F4A_7C15 = 2^64 / golden ratio, XOR with it never yields zero,
                 // which xorshift64 requires.
                 s.spawn(move || worker(pool, 0x9E37_79B9_7F4A_7C15 ^ (t as u64 + 1)))
