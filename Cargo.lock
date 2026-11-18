@@ -64,7 +64,13 @@ dependencies = [
 name = "avo-radix-index"
 version = "0.1.0"
 dependencies = [
+ "avo-block-pool",
+ "avo-kv-hash",
+ "avo-obs",
+ "criterion",
  "proptest",
+ "thiserror",
+ "tracing",
 ]
 
 [[package]]
