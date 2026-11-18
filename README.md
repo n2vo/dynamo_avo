@@ -10,7 +10,7 @@ A clean-room Rust reimplementation of the CPU-side key-value (KV) cache manageme
 | `avo-block-pool` | 2: Reference-counted block pool with LRU reuse and RAII handles | `lib/kvbm-logical` | Complete |
 | `avo-radix-index` | 3: Radix index over block-hash sequences | `lib/kv-router/src/indexer` | Complete |
 | `avo-kv-offload` | 4: Host and disk offload with per-block and coalesced-slab writers, bounded offload queue | `lib/kvbm-engine/src/offload`, `lib/kvbm-physical` | Complete |
-| `avo-kv-router` | 5: KV-aware routing | `lib/kv-router/src/scheduling` | Planned |
+| `avo-kv-router` | 5: KV-aware routing | `lib/router/kv-router/src/scheduling`, `lib/router/kv-indexer`, `lib/router/scheduler` | Complete |
 | `avo-obs` | Observability track: Tracing setup and per-request TTFT, ITL, and TPOT | `lib/llm/src/request_trace` | In progress |
 
 TTFT is time to first token, ITL is inter-token latency, and TPOT is time per output token.
@@ -41,6 +41,7 @@ crates/avo-kv-hash/      Milestone 1 implementation, differential and property t
 crates/avo-block-pool/   Milestone 2 implementation, property and concurrency tests, benchmarks
 crates/avo-radix-index/  Milestone 3 implementation, property and edge-case tests, benchmarks
 crates/avo-kv-offload/   Milestone 4 implementation, property and unit tests, benchmarks
+crates/avo-kv-router/    Milestone 5 implementation, property, unit, and trace-field tests, benchmarks
 crates/avo-obs/          Observability shared by every milestone
 docs/FINDINGS.md         Per-milestone benchmark, bottleneck, evidence, and Dynamo comparison
 docs/dynamo_request_path.svg

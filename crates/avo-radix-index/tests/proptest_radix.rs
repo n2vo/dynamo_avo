@@ -1,6 +1,6 @@
 //! Proving test for Milestone 3: The tree's longest-prefix matches equal a brute-force map
-//! of every stored prefix, under random inserts, matches, and evictions. Unit tests pin one
-//! behavior each.
+//! of every stored prefix, under random inserts, matches, evictions, and removals. Unit tests
+//! pin one behavior each.
 
 use std::collections::HashMap;
 
@@ -160,6 +160,50 @@ fn errors() {
 }
 
 #[test]
+fn remove_takes_the_block_and_everything_below_it() {
+    let mut tree = RadixTree::new();
+    let a = insert(&mut tree, &[1, 2, 3, 4]);
+    let b = insert(&mut tree, &[1, 2, 5]);
+    let c = insert(&mut tree, &[1, 7]);
+    assert_eq!(tree.remove(&a[..3]), Ok(2), "blocks 3 and 4 of a");
+    assert_eq!(tree.match_prefix(&a).matched, 2);
+    assert_eq!(tree.match_prefix(&b).matched, 3);
+    let s = tree.stats();
+    assert_eq!(
+        (s.nodes, s.leaves, s.blocks),
+        (4, 2, 4),
+        "[1] with children [2, 5] and [7]: [2] merged with [5]"
+    );
+    assert_eq!(
+        tree.remove(&b[..1]),
+        Ok(4),
+        "the shared first block takes every block below it: 2, 5, and 7"
+    );
+    assert_eq!(tree.match_prefix(&c).matched, 0);
+    assert_eq!(tree.stats().nodes, 1);
+    assert_eq!(tree.remove(&c), Err(RadixError::NotFound));
+    assert_eq!(tree.remove(&[]), Err(RadixError::EmptySequence));
+}
+
+#[test]
+fn remove_drops_pins_and_keeps_eviction_consistent() {
+    let mut tree = RadixTree::new();
+    let a = insert(&mut tree, &[1, 2, 3]);
+    let b = insert(&mut tree, &[4, 5]);
+    tree.pin(&a).expect("pin");
+    assert_eq!(tree.remove(&a[..2]), Ok(2));
+    assert_eq!(tree.unpin(&a), Err(RadixError::NotFound));
+    assert_eq!(
+        tree.evict().expect("evict").key,
+        a[0],
+        "a's first block is a leaf now"
+    );
+    assert_eq!(tree.evict().expect("evict").key, b[1]);
+    assert_eq!(tree.evict().expect("evict").key, b[0]);
+    assert_eq!(tree.evict(), Err(RadixError::Empty));
+}
+
+#[test]
 fn trace_fields_match_avo_obs() {
     assert_eq!(avo_obs::fields::PROMPT_BLOCKS, "prompt_blocks");
     assert_eq!(avo_obs::fields::CACHE_HIT_BLOCKS, "cache_hit_blocks");
@@ -170,6 +214,7 @@ enum Op {
     Insert(Vec<u32>, u32),
     Match(Vec<u32>),
     Evict,
+    Remove(Vec<u32>),
 }
 
 fn tokens() -> impl Strategy<Value = Vec<u32>> {
@@ -182,6 +227,7 @@ fn op() -> impl Strategy<Value = Op> {
         3 => (tokens(), 0u32..3).prop_map(|(t, w)| Op::Insert(t, w)),
         3 => tokens().prop_map(Op::Match),
         2 => Just(Op::Evict),
+        2 => tokens().prop_map(Op::Remove),
     ]
 }
 
@@ -243,6 +289,24 @@ proptest! {
                         prop_assert!(model.is_empty());
                     }
                 },
+                Op::Remove(t) => {
+                    let s = seq(&t);
+                    let below: Vec<Vec<BlockKey>> =
+                        model.keys().filter(|k| k.starts_with(&s)).cloned().collect();
+                    match tree.remove(&s) {
+                        Ok(n) => {
+                            prop_assert!(model.contains_key(&s));
+                            prop_assert_eq!(n, below.len());
+                            for k in below {
+                                model.remove(&k);
+                            }
+                        }
+                        Err(e) => {
+                            prop_assert_eq!(e, RadixError::NotFound);
+                            prop_assert!(!model.contains_key(&s));
+                        }
+                    }
+                }
             }
 
             let s = tree.stats();

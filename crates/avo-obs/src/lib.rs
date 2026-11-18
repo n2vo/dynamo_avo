@@ -25,6 +25,11 @@ pub mod fields {
     pub const OFFLOAD_BYTES: &str = "offload_bytes";
     pub const SLAB_ID: &str = "slab_id";
     pub const TIER: &str = "tier";
+    pub const ACTIVE_SEQUENCES: &str = "active_sequences";
+    pub const QUEUED_TOKENS: &str = "queued_tokens";
+    pub const ROUTING_POLICY: &str = "routing_policy";
+    pub const ROUTE_COST: &str = "route_cost";
+    pub const KV_EVENT: &str = "kv_event";
 }
 
 /// Installs a global `tracing` subscriber filtered by `RUST_LOG` (default `info`).

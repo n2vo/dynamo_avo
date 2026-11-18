@@ -1,0 +1,28 @@
+[package]
+name = "avo-kv-router"
+description = "Milestone 5: KV-aware request routing over per-worker radix indexes."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+avo-block-pool = { path = "../avo-block-pool" }
+avo-radix-index = { path = "../avo-radix-index" }
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+avo-kv-hash = { path = "../avo-kv-hash" }
+avo-obs.workspace = true
+criterion.workspace = true
+proptest.workspace = true
+tracing-subscriber.workspace = true
+
+[[bench]]
+name = "router_bench"
+harness = false
+
+[lints]
+workspace = true
