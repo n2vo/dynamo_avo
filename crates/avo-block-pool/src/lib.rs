@@ -25,6 +25,7 @@
 //! more than one set, or twice in one set, is the double-free invariant.
 
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
 
 use parking_lot::{Mutex, MutexGuard};
@@ -80,6 +81,31 @@ enum BlockState {
     Inactive { hash: u64 },
 }
 
+/// Hasher for the hash index. Keys are block hashes, hashed again with one multiply by
+/// 2^64 / golden ratio (Fibonacci hashing). The multiply spreads sequential keys into the
+/// top bits, which `hashbrown` uses as each slot's tag. SipHash, the default, runs under the
+/// pool lock on every lookup, eviction, and commit.
+#[derive(Default)]
+struct BlockHashHasher(u64);
+
+impl Hasher for BlockHashHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write_u64(&mut self, v: u64) {
+        self.0 = v.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+
+    /// `u64` keys hash through `write_u64`, so this byte path is never reached.
+    fn write(&mut self, _: &[u8]) {
+        unreachable!("the hash index is keyed by u64, which hashes through write_u64")
+    }
+}
+
+/// Block hash to block id, hashed with `BlockHashHasher`.
+type HashIndex = HashMap<u64, BlockId, BuildHasherDefault<BlockHashHasher>>;
+
 /// Internal pool state behind the lock
 struct PoolState {
     // Per-id state: Free | Active { refs, hash } | Inactive { hash }
@@ -89,7 +115,7 @@ struct PoolState {
     free: Vec<BlockId>,
 
     // Committed blocks, active or inactive, for lookup
-    by_hash: HashMap<u64, BlockId>,
+    by_hash: HashIndex,
 
     // LRU list: Previous inactive block, NIL at the head
     prev: Vec<u32>,
@@ -214,7 +240,7 @@ impl BlockPool {
         let state = PoolState {
             blocks,
             free,
-            by_hash: HashMap::new(),
+            by_hash: HashIndex::default(),
             prev: vec![NIL; capacity],
             next: vec![NIL; capacity],
             head: NIL,
