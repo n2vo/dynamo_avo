@@ -2,8 +2,10 @@
 //!
 //! Compressed radix tree over chained block-hash sequences. Each edge holds a run of
 //! blocks, so a long shared prefix (a system prompt) is one hop. Supports insert with edge
-//! splitting, longest-prefix match, per-block pinning, and leaf-safe LRU eviction that
-//! compacts the tree as it goes. Single-threaded; wrap it in a lock to share it.
+//! splitting, longest-prefix match, per-block pinning, leaf-safe LRU eviction that
+//! compacts the tree as it goes, and removal of a reported block with everything below it
+//! (Milestone 5 applies worker cache events through it). Single-threaded; wrap it in a lock
+//! to share it.
 //!
 //! Dynamo counterpart: `lib/kv-router/src/indexer` (`concurrent_radix_tree_compressed`) for
 //! the tree, and `lib/kvbm-logical/src/pools/inactive/backends/lineage` for leaf-only
@@ -435,6 +437,41 @@ impl RadixTree {
             meta: entry.meta,
             depth,
         })
+    }
+
+    /// Removes the last block of `seq` and every stored block that extends it, as when a
+    /// cache reports that block gone: Prefix matching cannot pass a missing block, so the
+    /// blocks below it are unreachable. Removal is authoritative, so pins on the removed
+    /// blocks are dropped. Compacts the tree as `evict` does. Returns the blocks removed.
+    pub fn remove(&mut self, seq: &[BlockKey]) -> Result<usize, RadixError> {
+        let (id, at) = self.locate(seq)?;
+        let mut removed = 0;
+        let mut below: Vec<NodeId> = self.node(id).children.values().copied().collect();
+        while let Some(n) = below.pop() {
+            below.extend(self.node(n).children.values().copied());
+            removed += self.node(n).edge.len();
+            let access = self.node(n).last_access;
+            self.lru.remove(&(access, n));
+            self.release(n);
+        }
+        self.node_mut(id).children.clear();
+        let access = self.node(id).last_access;
+        if at == 0 {
+            removed += self.node(id).edge.len();
+            self.lru.remove(&(access, id));
+            let first = self.node(id).edge[0].key;
+            let parent = self.node(id).parent;
+            self.node_mut(parent).children.remove(&first);
+            self.release(id);
+            self.compact(parent);
+        } else {
+            removed += self.node(id).edge.len() - at;
+            self.node_mut(id).edge.truncate(at);
+            self.refresh(id, access);
+        }
+        self.blocks -= removed;
+        tracing::trace!(removed, "radix_remove");
+        Ok(removed)
     }
 
     /// Number of blocks from the root through the last block of `id`'s edge.

@@ -65,6 +65,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "avo-kv-router"
+version = "0.1.0"
+dependencies = [
+ "avo-block-pool",
+ "avo-kv-hash",
+ "avo-obs",
+ "avo-radix-index",
+ "criterion",
+ "proptest",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "avo-obs"
 version = "0.1.0"
 dependencies = [
