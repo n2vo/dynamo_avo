@@ -52,6 +52,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "avo-kv-offload"
+version = "0.1.0"
+dependencies = [
+ "avo-block-pool",
+ "avo-kv-hash",
+ "avo-obs",
+ "criterion",
+ "proptest",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "avo-obs"
 version = "0.1.0"
 dependencies = [

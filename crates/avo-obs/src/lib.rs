@@ -21,6 +21,10 @@ pub mod fields {
     pub const QUEUE_DEPTH: &str = "queue_depth";
     pub const BLOCKS_IN_USE: &str = "blocks_in_use";
     pub const BLOCKS_TOTAL: &str = "blocks_total";
+    pub const OFFLOAD_BLOCKS: &str = "offload_blocks";
+    pub const OFFLOAD_BYTES: &str = "offload_bytes";
+    pub const SLAB_ID: &str = "slab_id";
+    pub const TIER: &str = "tier";
 }
 
 /// Installs a global `tracing` subscriber filtered by `RUST_LOG` (default `info`).
